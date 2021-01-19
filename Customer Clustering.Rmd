@@ -1,0 +1,124 @@
+---
+title: "Clustering"
+author: "Matthew Buddensick"
+date: "10/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pacman::p_load(tidyverse, tidymodels, naniar, janitor)
+theme_set(theme_classic())
+```
+
+## Data
+
+The data we will be using refers to mall customers, and includes the variables CustomerID, Gender, Age, Annual Income and Spending Score. The data can be found on [kaggle](https://www.kaggle.com/vjchoudhary7/customer-segmentation-tutorial-in-python).
+
+```{r}
+data <- read_csv("Mall_Customers.csv") %>% 
+  clean_names()
+```
+
+```{r}
+glimpse(data)
+```
+
+```{r}
+miss_var_summary(data)
+```
+
+No missing data.
+
+```{r}
+summary(data)
+```
+
+From the summary we can see that Gender should be coded as dummy variable. We will drop CustomerID since it is just an ID column
+
+```{r}
+data <- data %>% 
+  mutate(gender = ifelse(gender == "Male", 1, 0)) %>% 
+  mutate(gender = as.numeric(gender)) %>% 
+  select(-customer_id)
+```
+
+```{r}
+summary(data)
+```
+
+## Statistical Tests 
+### Does Gender Affect Annual Income?
+
+```{r}
+data %>% 
+  group_by(gender) %>% 
+  mutate(gender = case_when(gender == 0 ~ "Female",
+                            gender == 1 ~ "Male")) %>% 
+  summarize(quantity = n(),
+            mean_age = mean(age),
+            mean_income = mean(annual_income_k),
+            sd_income = sd(annual_income_k))
+```
+
+```{r}
+data %>% 
+  mutate(gender = case_when(gender == 0 ~ "Female",
+                            gender == 1 ~ "Male")) %>% 
+  ggplot(aes(x = factor(gender), y = annual_income_k, group = gender)) +
+    geom_boxplot(fill = "light blue") +
+    labs(title = "Annual Income by Gender", y = "Annual Income (Thousands)", x = "Gender")
+```
+
+It looks like there is almost no difference in annual income in this data between men and women. We can use a statistical test to try to prove our hypothesis.
+
+```{r}
+t.test(data$annual_income_k ~ factor(data$gender))
+```
+
+Ho: Gender has no affect on annual income
+Ha: Gender has an affect on annual income
+We get a p-value of .428, so we fail to reject the null hypothesis.
+
+## Kmeans Clustering
+
+We are going to use Kmeans in order to cluster the data into groups. If you want to read more about what Kmeans is and how it works you can do so [here](https://towardsdatascience.com/understanding-k-means-clustering-in-machine-learning-6a6e67336aa1).
+
+```{r}
+wss <- 0 
+for (i in 1:10) {
+  cluster <- kmeans(data, centers = i, nstart = 50)
+  wss[i] <- cluster$tot.withinss
+}
+```
+
+```{r}
+plot(1:10, wss, main = " Best Value for K", ylab = "Total within-cluster sum of squares", xlab = "Number of centers")
+```
+
+Using the elbow method, we can say that the best value for k is 5. As the total within-cluster sum of squares no longer seems to be largely impacted by increasing the value of K.
+
+```{r}
+(kmeans_out <- kmeans(data, centers = 5, nstart = 50))
+```
+
+```{r}
+(customer_segment <- kmeans_out$cluster)
+```
+
+```{r}
+(segment_data <- cbind(data, customer_segment))
+```
+
+```{r}
+ggplot(segment_data, aes(x = spending_score_1_100, y = annual_income_k, color = factor(customer_segment))) +
+  geom_point() +
+  scale_color_manual(values = c("blue", "red", "green", "orange", "black")) +
+  labs(title = "Displaying Customer Clusters", y = "Annual Income (In Thousands)", x = "Spending Score (0 to 100)",
+       color = "Cluster")
+```
+
+We can see from the results of the kmeans function, and our graph, that clusters 2 and 4 have very low spending scores compared to the other groups, with cluster 2 having a higher annual income and cluster 4 having a low annual income. Cluster 3 seems to be in the middle of all the clusters in terms of spending score and annual income. While cluster 1 and 5 have very high spending scores, with cluster 1 having low annual incomes and cluster 5 having high annual incomes.
